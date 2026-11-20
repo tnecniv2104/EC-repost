@@ -1,5 +1,9 @@
 {
-  "normal_reposts": {},
+  "normal_reposts": {
+    "at://did:plc:kwvkebtflw5mtr4z7cygwfc2/app.bsky.feed.post/3n2qorzf7ns24": "2026-11-20T13:58:57.242903+00:00",
+    "at://did:plc:kwvkebtflw5mtr4z7cygwfc2/app.bsky.feed.post/3n2qpaptnts24": "2026-11-20T13:59:03.429409+00:00",
+    "at://did:plc:kwvkebtflw5mtr4z7cygwfc2/app.bsky.feed.post/3n2qpbobtoc24": "2026-11-20T13:59:09.613685+00:00"
+  },
   "repost_always_reboosted": {
     "at://did:plc:pz5mzmkpuntzbn3iofk4cmwp/app.bsky.feed.post/3n2qgpnpbpv2b": "2026-11-20T13:45:26.651370+00:00",
     "at://did:plc:6muwszrhdaweasjajswkuy2u/app.bsky.feed.post/3n2qgq4cjh42a": "2026-11-20T13:45:30.756022+00:00",
@@ -35,12 +39,22 @@
     "at://did:plc:kwvkebtflw5mtr4z7cygwfc2/app.bsky.feed.post/3n2qozofegc24": "2026-11-20T13:48:31.910332+00:00",
     "at://did:plc:kwvkebtflw5mtr4z7cygwfc2/app.bsky.feed.post/3n2qp2if2ok24": "2026-11-20T13:48:38.017460+00:00",
     "at://did:plc:kwvkebtflw5mtr4z7cygwfc2/app.bsky.feed.post/3n2qp3tqcbs24": "2026-11-20T13:48:44.117337+00:00",
-    "at://did:plc:bizzb5xbwm5si32yure4dydg/app.bsky.feed.post/3n2qpe4cags22": "2026-11-20T13:48:50.224901+00:00"
+    "at://did:plc:bizzb5xbwm5si32yure4dydg/app.bsky.feed.post/3n2qpe4cags22": "2026-11-20T13:48:50.224901+00:00",
+    "at://did:plc:emicsdyerbopzwqvzivbrwfj/app.bsky.feed.post/3n2qho4svvs22": "2026-11-20T13:59:39.938684+00:00",
+    "at://did:plc:emicsdyerbopzwqvzivbrwfj/app.bsky.feed.post/3n2qhooc2ic22": "2026-11-20T13:59:46.147369+00:00",
+    "at://did:plc:emicsdyerbopzwqvzivbrwfj/app.bsky.feed.post/3n2qhpavzrk22": "2026-11-20T13:59:52.343081+00:00",
+    "at://did:plc:ny4wpaizy54liyoon45o6m3o/app.bsky.feed.post/3n2qirjcfxs2j": "2026-11-20T13:59:58.523838+00:00",
+    "at://did:plc:ny4wpaizy54liyoon45o6m3o/app.bsky.feed.post/3n2qis4aaos2j": "2026-11-20T14:00:04.704292+00:00",
+    "at://did:plc:ny4wpaizy54liyoon45o6m3o/app.bsky.feed.post/3n2qisn6m5s2j": "2026-11-20T14:00:10.885803+00:00",
+    "at://did:plc:4x5cospsdgrainjqddncu6wv/app.bsky.feed.post/3n2qoa3xk7c2b": "2026-11-20T14:00:17.067979+00:00",
+    "at://did:plc:bizzb5xbwm5si32yure4dydg/app.bsky.feed.post/3n2qpib3lwk22": "2026-11-20T14:00:23.265370+00:00",
+    "at://did:plc:bizzb5xbwm5si32yure4dydg/app.bsky.feed.post/3n2qpnnjaf222": "2026-11-20T14:00:29.453100+00:00"
   },
   "promo_random_used": {
-    "at://did:plc:ujis4z76ku3q7jpmqp5utldl/app.bsky.feed.post/3n2qhixqevc2x": "2026-11-20T13:49:05.325021+00:00"
+    "at://did:plc:ujis4z76ku3q7jpmqp5utldl/app.bsky.feed.post/3n2qhixqevc2x": "2026-11-20T13:49:05.325021+00:00",
+    "at://did:plc:sp54ouue6fp2dlvn2cux54ka/app.bsky.feed.post/3n2qngf3gcl2k": "2026-11-20T14:00:59.013130+00:00"
   },
   "promo_last_used": {},
   "own_reboosted": {},
-  "last_run": "2026-11-20T13:49:18.644977+00:00"
+  "last_run": "2026-11-20T14:01:12.070253+00:00"
 }
