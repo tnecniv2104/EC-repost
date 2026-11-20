@@ -1,17 +1,8 @@
+
 name: Eyescandy Reposter
 
 on:
   workflow_dispatch:
-    inputs:
-      run_mode:
-        description: "Kies welke run uitgevoerd wordt"
-        required: true
-        type: choice
-        options:
-          - BOTH
-          - RUN_1
-          - RUN_2
-        default: BOTH
 
 permissions:
   contents: read
@@ -47,22 +38,17 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-eyescandy-state-
 
-      - name: Run Eyescandy RUN_1 and/or RUN_2
+      - name: Run Eyescandy RUN_1 and RUN_2
         env:
           EYESCANDY_PASSWORD: ${{ secrets.EYESCANDY_PASSWORD }}
-          RUN_MODE_INPUT: ${{ inputs.run_mode }}
         run: |
           set -e
 
-          if [ "$RUN_MODE_INPUT" = "BOTH" ] || [ "$RUN_MODE_INPUT" = "RUN_1" ]; then
-            echo "Starting Eyescandy RUN_1"
-            RUN_MODE=RUN_1 python eyescandy_reposter.py
-          fi
+          echo "Starting Eyescandy RUN_1"
+          RUN_MODE=RUN_1 python eyescandy_reposter.py
 
-          if [ "$RUN_MODE_INPUT" = "BOTH" ] || [ "$RUN_MODE_INPUT" = "RUN_2" ]; then
-            echo "Starting Eyescandy RUN_2"
-            RUN_MODE=RUN_2 python eyescandy_reposter.py
-          fi
+          echo "Starting Eyescandy RUN_2"
+          RUN_MODE=RUN_2 python eyescandy_reposter.py
 
       - name: Save Eyescandy state
         if: always() && hashFiles('eyescandy_state.json') != ''
