@@ -1,0 +1,72 @@
+name: Eyescandy Reposter
+
+on:
+  workflow_dispatch:
+    inputs:
+      run_mode:
+        description: "Kies welke run uitgevoerd wordt"
+        required: true
+        type: choice
+        options:
+          - BOTH
+          - RUN_1
+          - RUN_2
+        default: BOTH
+
+permissions:
+  contents: read
+
+concurrency:
+  group: eyescandy-reposter
+  cancel-in-progress: false
+
+jobs:
+  repost:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install atproto
+
+      - name: Restore Eyescandy state
+        uses: actions/cache/restore@v4
+        with:
+          path: eyescandy_state.json
+          key: ${{ runner.os }}-eyescandy-state-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            ${{ runner.os }}-eyescandy-state-
+
+      - name: Run Eyescandy RUN_1 and/or RUN_2
+        env:
+          EYESCANDY_PASSWORD: ${{ secrets.EYESCANDY_PASSWORD }}
+          RUN_MODE_INPUT: ${{ inputs.run_mode }}
+        run: |
+          set -e
+
+          if [ "$RUN_MODE_INPUT" = "BOTH" ] || [ "$RUN_MODE_INPUT" = "RUN_1" ]; then
+            echo "Starting Eyescandy RUN_1"
+            RUN_MODE=RUN_1 python eyescandy_reposter.py
+          fi
+
+          if [ "$RUN_MODE_INPUT" = "BOTH" ] || [ "$RUN_MODE_INPUT" = "RUN_2" ]; then
+            echo "Starting Eyescandy RUN_2"
+            RUN_MODE=RUN_2 python eyescandy_reposter.py
+          fi
+
+      - name: Save Eyescandy state
+        if: always() && hashFiles('eyescandy_state.json') != ''
+        uses: actions/cache/save@v4
+        with:
+          path: eyescandy_state.json
+          key: ${{ runner.os }}-eyescandy-state-${{ github.run_id }}-${{ github.run_attempt }}
