@@ -1,11 +1,9 @@
-import json
-import logging
 import os
+import json
 import time
-from collections import defaultdict
-from datetime import datetime, timedelta, timezone
+import logging
 from pathlib import Path
-from urllib.parse import urlparse
+from datetime import datetime, timezone, timedelta
 
 from atproto import Client
 
@@ -15,356 +13,399 @@ from atproto import Client
 
 USERNAME = "eyescandy.bsky.social"
 PASSWORD = os.getenv("EYESCANDY_PASSWORD")
-STATE_FILE = Path("eyescandy_state.json")
 
-REPOST_ALWAYS_LIST = (
-    "https://bsky.app/profile/did:plc:sp54ouue6fp2dlvn2cux54ka/"
+LIST_URL = (
+    "https://bsky.app/profile/"
+    "did:plc:sp54ouue6fp2dlvn2cux54ka/"
     "lists/3mncvshsuhi2d"
 )
 
-LOOKBACK_HOURS = 3
-MAX_PER_AUTHOR = 3
-PAGE_SIZE = 100
+STATE_FILE = Path("eyescandy_state.json")
+
+HOURS_BACK = 3
+MAX_PER_USER = 3
+MAX_PER_RUN = 100
+POSTS_PER_ACCOUNT = 30
 SLEEP_SECONDS = 2
 
-# Alleen waarschuwingen en fouten tonen.
 logging.basicConfig(
-    level=logging.WARNING,
-    format="%(asctime)s | %(levelname)s | %(message)s",
+    level=logging.INFO,
+    format="%(asctime)s | %(levelname)s | %(message)s"
 )
-logging.getLogger("httpx").setLevel(logging.WARNING)
-logging.getLogger("httpcore").setLevel(logging.WARNING)
+
+log = logging.getLogger("eyescandy")
 
 
-def now_utc():
+# ============================================================
+# DATUM EN TIJD
+# ============================================================
+
+def utcnow():
     return datetime.now(timezone.utc)
 
 
-def parse_datetime(value):
+def parse_date(value):
     if not value:
         return None
+
     try:
-        result = datetime.fromisoformat(value.replace("Z", "+00:00"))
-        if result.tzinfo is None:
-            result = result.replace(tzinfo=timezone.utc)
-        return result.astimezone(timezone.utc)
-    except (TypeError, ValueError):
+        dt = datetime.fromisoformat(
+            value.replace("Z", "+00:00")
+        )
+
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+
+        return dt.astimezone(timezone.utc)
+
+    except Exception:
         return None
 
 
-def post_datetime(post):
-    record = getattr(post, "record", None)
-    value = (
-        getattr(record, "created_at", None)
-        or getattr(post, "indexed_at", None)
-    )
-    return parse_datetime(value)
-
-
-def post_uri(post):
-    return getattr(post, "uri", None)
-
-
-def is_repost_item(item):
-    reason = getattr(item, "reason", None)
-    return (
-        reason is not None
-        and "repost" in reason.__class__.__name__.lower()
-    )
-
-
-def is_reply(post):
-    return (
-        getattr(getattr(post, "record", None), "reply", None)
-        is not None
-    )
-
-
-def is_quote(post):
-    embed = getattr(post, "embed", None)
-    if not embed:
-        return False
-
-    embed_type = getattr(embed, "$type", "") or ""
-
-    if "recordWithMedia" in embed_type:
-        return getattr(embed, "record", None) is not None
-
-    return "record" in embed_type
-
-
-def has_media(post):
-    embed = getattr(post, "embed", None)
-    if not embed:
-        return False
-
-    embed_type = getattr(embed, "$type", "") or ""
-
-    if "record" in embed_type and "recordWithMedia" not in embed_type:
-        return False
-
-    if getattr(embed, "images", None) or getattr(embed, "video", None):
-        return True
-
-    media = getattr(embed, "media", None)
-
-    return bool(
-        media
-        and (
-            getattr(media, "images", None)
-            or getattr(media, "video", None)
-        )
-    )
-
-
-def is_normal_media_post(post):
-    return bool(
-        post
-        and has_media(post)
-        and not is_reply(post)
-        and not is_quote(post)
-    )
-
-
-def list_url_to_uri(url):
-    parts = urlparse(url).path.strip("/").split("/")
-
-    if len(parts) < 4:
-        raise ValueError("Ongeldige Repost Always-lijstlink")
-
-    return f"at://{parts[1]}/app.bsky.graph.list/{parts[3]}"
-
+# ============================================================
+# STATE
+# ============================================================
 
 def load_state():
     if not STATE_FILE.exists():
         return {"normal_reposts": {}}
 
     try:
-        with STATE_FILE.open("r", encoding="utf-8") as handle:
-            state = json.load(handle)
+        with STATE_FILE.open("r", encoding="utf-8") as f:
+            state = json.load(f)
 
         if not isinstance(state, dict):
-            raise ValueError("Statebestand bevat geen JSON-object")
+            state = {}
 
-        if not isinstance(state.get("normal_reposts"), dict):
-            state["normal_reposts"] = {}
-
+        state.setdefault("normal_reposts", {})
         return state
 
     except Exception as exc:
-        raise RuntimeError(
-            f"Statebestand niet leesbaar: {exc}"
-        ) from exc
+        log.error("State kon niet worden gelezen: %s", exc)
+        return {"normal_reposts": {}}
 
 
 def save_state(state):
-    temporary = STATE_FILE.with_suffix(".json.tmp")
+    temp_file = STATE_FILE.with_suffix(".tmp")
 
-    with temporary.open("w", encoding="utf-8") as handle:
+    with temp_file.open("w", encoding="utf-8") as f:
         json.dump(
             state,
-            handle,
+            f,
             indent=2,
-            ensure_ascii=False,
-            sort_keys=True,
+            ensure_ascii=False
         )
 
-    temporary.replace(STATE_FILE)
+    os.replace(temp_file, STATE_FILE)
 
 
-def fetch_list_members(client):
-    list_uri = list_url_to_uri(REPOST_ALWAYS_LIST)
+# ============================================================
+# BLUESKY-LIJST
+# ============================================================
 
-    members = {}
+def list_uri_from_url(url):
+    parts = url.rstrip("/").split("/")
+
+    if len(parts) < 2:
+        raise ValueError("Ongeldige Repost Always URL")
+
+    return (
+        f"at://{parts[-3]}/app.bsky.graph.list/{parts[-1]}"
+    )
+
+
+def fetch_list_members(client, list_uri):
+    members = []
     cursor = None
 
     while True:
         params = {
             "list": list_uri,
-            "limit": PAGE_SIZE,
+            "limit": 100
         }
 
         if cursor:
             params["cursor"] = cursor
 
-        response = client.app.bsky.graph.get_list(params=params)
+        try:
+            response = client.app.bsky.graph.get_list(params)
+
+        except Exception as exc:
+            log.error("Lijst ophalen mislukt: %s", exc)
+            break
 
         for item in getattr(response, "items", []) or []:
             subject = getattr(item, "subject", None)
 
-            did = getattr(subject, "did", None) if subject else None
-            handle = getattr(subject, "handle", None) if subject else None
+            if not subject:
+                continue
+
+            did = getattr(subject, "did", None)
 
             if did:
-                members.setdefault(did, handle or did)
+                members.append(did)
 
         cursor = getattr(response, "cursor", None)
 
         if not cursor:
             break
 
-    return list(members.items())
+    return list(dict.fromkeys(members))
 
 
-def fetch_recent_media(client, actor, cutoff):
-    selected = {}
-    cursor = None
+# ============================================================
+# MEDIA CONTROLE
+# ============================================================
 
-    while True:
-        params = {
-            "actor": actor,
-            "limit": PAGE_SIZE,
-        }
+def has_media(post):
+    embed = getattr(post, "embed", None)
 
-        if cursor:
-            params["cursor"] = cursor
+    if not embed:
+        return False
 
-        response = client.app.bsky.feed.get_author_feed(
-            params=params
+    if getattr(embed, "images", None):
+        return True
+
+    if getattr(embed, "video", None):
+        return True
+
+    media = getattr(embed, "media", None)
+
+    if media:
+        if getattr(media, "images", None):
+            return True
+
+        if getattr(media, "video", None):
+            return True
+
+    return False
+
+
+def is_original_media_post(item, post):
+    # Geen reposts van andere accounts
+    if getattr(item, "reason", None) is not None:
+        return False
+
+    record = getattr(post, "record", None)
+
+    if not record:
+        return False
+
+    # Geen antwoorden
+    if getattr(record, "reply", None):
+        return False
+
+    # Alleen normale foto's en video's
+    if not has_media(post):
+        return False
+
+    # Geen quote-posts
+    embed = getattr(post, "embed", None)
+
+    if embed:
+        embed_type = getattr(embed, "$type", "") or ""
+
+        if "record" in embed_type:
+            return False
+
+    return True
+
+
+def get_post_date(post):
+    record = getattr(post, "record", None)
+
+    created = None
+
+    if record:
+        created = (
+            getattr(record, "created_at", None)
+            or getattr(record, "createdAt", None)
         )
 
-        feed = getattr(response, "feed", []) or []
+    if not created:
+        created = (
+            getattr(post, "indexed_at", None)
+            or getattr(post, "indexedAt", None)
+        )
 
-        if not feed:
-            break
+    return parse_date(created)
 
-        reached_cutoff = False
 
-        for item in feed:
-            if is_repost_item(item):
-                continue
+# ============================================================
+# BERICHTEN VAN EEN ACCOUNT OPHALEN
+# ============================================================
+
+def fetch_author_posts(client, actor):
+    try:
+        response = client.app.bsky.feed.get_author_feed({
+            "actor": actor,
+            "limit": POSTS_PER_ACCOUNT
+        })
+
+        return getattr(response, "feed", []) or []
+
+    except Exception as exc:
+        # Zelfde eenvoudige foutafhandeling als DMPhotos:
+        # dit account overslaan en doorgaan met het volgende.
+        log.warning(
+            "Account overgeslagen wegens ophaalfout: %s | %s",
+            actor,
+            exc
+        )
+
+        return []
+
+
+# ============================================================
+# REPOST ALWAYS VERWERKEN
+# ============================================================
+
+def process_repost_always(client, state):
+
+    cutoff = utcnow() - timedelta(hours=HOURS_BACK)
+
+    reposted = state["normal_reposts"]
+
+    list_uri = list_uri_from_url(LIST_URL)
+
+    log.info("Repost Always lijst ophalen")
+
+    members = fetch_list_members(client, list_uri)
+
+    log.info("Accounts in lijst: %s", len(members))
+
+    candidates = []
+
+    for actor in members:
+
+        items = fetch_author_posts(client, actor)
+
+        for item in items:
 
             post = getattr(item, "post", None)
 
             if not post:
                 continue
 
-            created = post_datetime(post)
-
-            if created is None:
+            if not is_original_media_post(item, post):
                 continue
 
+            uri = getattr(post, "uri", None)
+            cid = getattr(post, "cid", None)
+
+            if not uri or not cid:
+                continue
+
+            # Staat het bericht al in state? Dan overslaan.
+            if uri in reposted:
+                continue
+
+            created = get_post_date(post)
+
+            if not created:
+                continue
+
+            # Alleen berichten van de afgelopen 3 uur.
             if created < cutoff:
-                reached_cutoff = True
                 continue
 
-            if not is_normal_media_post(post):
-                continue
+            candidates.append({
+                "uri": uri,
+                "cid": cid,
+                "created": created,
+                "author": actor
+            })
 
-            uri = post_uri(post)
+    # Oudste eerst
+    candidates.sort(key=lambda x: x["created"])
 
-            if uri:
-                selected[uri] = post
+    log.info("Geschikte nieuwe berichten: %s", len(candidates))
 
-        # De feed is nieuwste eerst.
-        # Zodra we ouder dan 3 uur zijn, stoppen we.
-        if reached_cutoff:
+    author_counts = {}
+    total = 0
+
+    for candidate in candidates:
+
+        if total >= MAX_PER_RUN:
             break
 
-        cursor = getattr(response, "cursor", None)
+        actor = candidate["author"]
 
-        if not cursor:
-            break
+        author_counts.setdefault(actor, 0)
 
-    return list(selected.values())
+        if author_counts[actor] >= MAX_PER_USER:
+            continue
 
+        uri = candidate["uri"]
+        cid = candidate["cid"]
+
+        try:
+            client.app.bsky.feed.repost.create(
+                repo=client.me.did,
+                record={
+                    "subject": {
+                        "uri": uri,
+                        "cid": cid
+                    },
+                    "createdAt": utcnow().isoformat()
+                }
+            )
+
+            # Alleen na een geslaagde repost opslaan.
+            reposted[uri] = utcnow().isoformat()
+
+            save_state(state)
+
+            author_counts[actor] += 1
+            total += 1
+
+            log.info("REPOST GESLAAGD: %s", uri)
+
+            time.sleep(SLEEP_SECONDS)
+
+        except Exception as exc:
+
+            message = str(exc).lower()
+
+            # Een reeds bestaande repost niet als nieuwe
+            # succesvolle actie registreren.
+            log.error(
+                "REPOST MISLUKT: %s | %s",
+                uri,
+                exc
+            )
+
+    log.info("Klaar. Nieuwe reposts: %s", total)
+
+
+# ============================================================
+# MAIN
+# ============================================================
 
 def main():
+
+    log.info("=== EYESCANDY REPOST ALWAYS START ===")
+
     if not PASSWORD:
-        raise RuntimeError(
-            "EYESCANDY_PASSWORD ontbreekt in GitHub Secrets"
-        )
+        log.error("EYESCANDY_PASSWORD ontbreekt")
+        return
 
     state = load_state()
 
     client = Client()
-    client.login(USERNAME, PASSWORD)
 
-    cutoff = now_utc() - timedelta(hours=LOOKBACK_HOURS)
+    try:
+        client.login(USERNAME, PASSWORD)
 
-    members = fetch_list_members(client)
+    except Exception as exc:
+        log.error("Inloggen mislukt: %s", exc)
+        return
 
-    candidates = {}
-    author_counts = defaultdict(int)
+    log.info("Ingelogd als %s", USERNAME)
 
-    for did, handle in members:
-        posts = fetch_recent_media(
-            client,
-            handle,
-            cutoff,
-        )
+    process_repost_always(client, state)
 
-        # Maximaal drie nieuwste geschikte posts per auteur.
-        posts.sort(
-            key=lambda post: post_datetime(post) or cutoff,
-            reverse=True,
-        )
-
-        for post in posts:
-            if author_counts[did] >= MAX_PER_AUTHOR:
-                break
-
-            uri = post_uri(post)
-
-            if not uri:
-                continue
-
-            if uri in state["normal_reposts"]:
-                continue
-
-            candidates[uri] = post
-            author_counts[did] += 1
-
-    # Oudste eerst verwerken.
-    ordered = sorted(
-        candidates.values(),
-        key=lambda post: post_datetime(post) or now_utc(),
-    )
-
-    reposted = 0
-    skipped_state = 0
-    errors = 0
-
-    for post in ordered:
-        uri = post_uri(post)
-        cid = getattr(post, "cid", None)
-
-        # State opnieuw controleren voor de repost.
-        if uri in state["normal_reposts"]:
-            skipped_state += 1
-            continue
-
-        if not uri or not cid:
-            errors += 1
-            logging.error("Post mist URI of CID; overgeslagen")
-            continue
-
-        try:
-            client.repost(uri, cid)
-
-            # Alleen na succesvolle repost in state opslaan.
-            state["normal_reposts"][uri] = now_utc().isoformat()
-            save_state(state)
-
-            reposted += 1
-            time.sleep(SLEEP_SECONDS)
-
-        except Exception as exc:
-            errors += 1
-            logging.exception(
-                "Repost mislukt voor %s: %s",
-                uri,
-                exc,
-            )
-
-    print(
-        "REPOST ALWAYS | "
-        f"lijstaccounts: {len(members)} | "
-        f"nieuwe kandidaten: {len(ordered)} | "
-        f"reposts: {reposted} | "
-        f"al in state: {skipped_state} | "
-        f"fouten: {errors}"
-    )
+    log.info("=== EYESCANDY REPOST ALWAYS KLAAR ===")
 
 
 if __name__ == "__main__":
